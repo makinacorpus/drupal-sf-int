@@ -1,0 +1,28 @@
+services:
+
+  # Register a few Drupal twig helpers, no matter we are using it or not they
+  # will be ignored if no twig is running, but aside of that, if Twig is there
+  # but not the bundle, this'll work gracefully
+#  twig.extension.drupal_common:
+#    public: false
+#    class: MakinaCorpus\Drupal\Sf\Twig\Extension\DrupalExtension
+#    tags: [{name: twig.extension}]
+#  twig.extension.drupal_http_render:
+#    public: true
+#    class: MakinaCorpus\Drupal\Sf\Twig\Extension\HttpRenderExtension
+#    arguments: ['@http_kernel', '@request_stack']
+#    tags: [{name: twig.extension}]
+
+  # UserSession argument resolver
+#  sf_dic.argument_value_resolver.user_session:
+#    class: MakinaCorpus\Drupal\Sf\Controller\ArgumentResolver\UserSessionValueResolver
+#    public: false
+#    # Run before default value resolver
+#    tags: [{name: controller.argument_value_resolver, priority: -80}]
+
+    # Custom node access helper
+    sf_dic.node_access.subscriber:
+        public: true
+        class: MakinaCorpus\Drupal\Sf\EventDispatcher\NodeAccessSubscriber
+        arguments: ["@event_dispatcher"]
+        tags: [{name: event_subscriber}]

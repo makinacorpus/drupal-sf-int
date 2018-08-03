@@ -1,0 +1,7 @@
+services:
+    property_accessor:
+        public: true
+        class: Symfony\Component\PropertyAccess\PropertyAccessor
+    Symfony\Component\PropertyAccess\PropertyAccessorInterface:
+        public: true
+        alias: property_accessor

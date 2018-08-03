@@ -1,0 +1,32 @@
+services:
+
+    drupal.security.token_authenticator:
+        public: true
+        class: MakinaCorpus\Drupal\Sf\Security\DrupalAuthenticator
+
+    drupal.security.account_provider:
+        public: true
+        class: MakinaCorpus\Drupal\Sf\Security\DrupalUserProvider
+        arguments: ['@entity.manager']
+
+    # Permission voter is simple and should be executed very fast, so allow it
+    # to have a high priority over the others.
+    drupal.security.permission_voter:
+        public: false
+        class: MakinaCorpus\Drupal\Sf\Security\Voter\DrupalPermissionVoter
+        tags: [{name: security.voter, priority: 100}]
+
+    # This is a very specific implementation of the ACL voter that will run the
+    # 'node_access' Drupal hook.
+#    drupal.security.node_access.voter:
+#        public: false
+#        class: MakinaCorpus\Drupal\Sf\Security\Voter\DrupalNodeAccessVoter
+#        tags: [{name: security.voter, priority: 0}]
+
+    # Decorate the authorization checker in order to be able to pass a drupal
+    # account as an additional parameter to the isGranted() method.
+    drupal.security.authorization_checker:
+        public: false
+        decorates: security.authorization_checker
+        class: MakinaCorpus\Drupal\Sf\Security\Authorization\TokenAwareAuthorizationChecker
+        arguments: ['@drupal.security.authorization_checker.inner', '@security.access.decision_manager']

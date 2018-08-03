@@ -1,0 +1,6 @@
+name: Symfony integration
+type: module
+description: Brings a better integration to Symfony along with some helpers
+package: Utility
+core: 8.x
+php: 7

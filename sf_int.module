@@ -1,0 +1,346 @@
+<?php
+/**
+ * Symfony better integration.
+ */
+
+use Drupal\Core\Access\AccessResult;
+use Drupal\Core\Entity\EntityInterface;
+use Drupal\Core\Entity\Display\EntityViewDisplayInterface;
+use Drupal\Core\Session\AccountInterface;
+use Drupal\node\NodeInterface;
+use Drupal\node\NodeTypeInterface;
+use MakinaCorpus\Drupal\Sf\EventDispatcher\EntityCollectionEvent;
+use MakinaCorpus\Drupal\Sf\EventDispatcher\EntityEvent;
+use MakinaCorpus\Drupal\Sf\EventDispatcher\NodeAccessEvent;
+use MakinaCorpus\Drupal\Sf\EventDispatcher\NodeAccessGrantEvent;
+use MakinaCorpus\Drupal\Sf\EventDispatcher\NodeAccessRecordEvent;
+use MakinaCorpus\Drupal\Sf\EventDispatcher\NodeAddAccessEvent;
+use MakinaCorpus\Drupal\Sf\EventDispatcher\NodeCollectionEvent;
+use MakinaCorpus\Drupal\Sf\EventDispatcher\NodeEvent;
+use Symfony\Component\EventDispatcher\EventDispatcherInterface;
+
+/**
+ * Get event dispatcher
+ */
+function sf_int_dispatcher(): EventDispatcherInterface {
+  return \Drupal::getContainer()->get('event_dispatcher');
+}
+
+/**
+ * Implements hook_entity_access_create().
+ */
+function sf_int_entity_create_access(AccountInterface $account, array $context, $entity_bundle) {
+  //
+  // When dealing with entity access creation, this hook is being called at
+  // some point, and we also can have access services, using the 'access_check'
+  // tag on services which implement an access() method.
+  //
+  // Problem is, when you just implement an access service, the entity system
+  // will set your permission to be an andIf() with the entity system own
+  // permission, but if you implement the hook, it will be an orIf() instead.
+  //
+  // Difference between andIf() and orIf() in the truth tables is that when
+  // you work with andIf() a neutral access will lead to a deny, whereas using
+  // orIf() a neutral access will lead to an allow if there's another allow in
+  // the results.
+  //
+  // Due to the difference in behavior between the hook implementation and the
+  // service implementation, we are forced to implement the hook, to ensure that
+  // the default core permissions remain neutral for us, instead of forcing the
+  // deny.
+  //
+  $bundle = null;
+  if (\is_string($entity_bundle)) {
+    $bundle = $entity_bundle;
+  } else if ($entity_bundle instanceof NodeTypeInterface) {
+    // Better be safe than sorry.
+    $bundle = $entity_bundle->id();
+  }
+  if ($bundle) {
+    $event = new NodeAddAccessEvent($account, $bundle);
+    sf_int_dispatcher()->dispatch(NodeAddAccessEvent::EVENT, $event);
+    return $event->getResult();
+  }
+  return AccessResult::neutral();
+}
+
+/**
+ * Implements hook_node_access().
+ */
+function sf_int_node_access(EntityInterface $node, $op, AccountInterface $account) {
+  if ($account instanceof AccountInterface) {
+    $event = new NodeAccessEvent($node, $account, $op);
+    sf_int_dispatcher()->dispatch(NodeAccessEvent::EVENT_NODE_ACCESS, $event);
+    return $event->getResult();
+  }
+}
+
+/**
+ * Implements hook_node_access_records().
+ */
+function sf_int_node_access_records($node) {
+  if ($node instanceof NodeInterface) {
+    $event = new NodeAccessRecordEvent($node);
+    sf_int_dispatcher()->dispatch(NodeAccessRecordEvent::EVENT_NODE_ACCESS_RECORD, $event);
+    return $event->toDrupalGrantList();
+  } else {
+    trigger_error('\$node should be an instanceof NodeInterface', E_USER_DEPRECATED);
+  }
+}
+
+/**
+ * Empty implementation of hook_node_grants().
+ */
+function sf_int_node_grants($account, $op) {
+  if ($account instanceof AccountInterface) {
+    // @todo This is a duplicate with the event throw within NodeAccessSubscriber
+    //   so it needs to go through a cache somehow
+    $event = new NodeAccessGrantEvent($account, $op);
+    sf_int_dispatcher()->dispatch(NodeAccessGrantEvent::EVENT_NODE_ACCESS_GRANT, $event);
+    return $event->getResult();
+  }
+}
+
+/**
+ * Implements hook_node_view().
+ */
+function sf_int_node_view(array &$build, EntityInterface $entity, EntityViewDisplayInterface $display, $view_mode) {
+  if ($entity instanceof NodeInterface) {
+    sf_int_node_dispatch(NodeEvent::EVENT_VIEW, $entity);
+  } else {
+    trigger_error('\$node should be an instanceof NodeInterface', E_USER_DEPRECATED);
+  }
+}
+
+/**
+ * Implements hook_node_presave().
+ */
+function sf_int_node_presave(EntityInterface $node) {
+  if ($node instanceof NodeInterface) {
+    if ($node->isNew()) {
+      sf_int_node_dispatch(NodeEvent::EVENT_PREINSERT, $node);
+    } else {
+      sf_int_node_dispatch(NodeEvent::EVENT_PREUPDATE, $node);
+    }
+    sf_int_node_dispatch(NodeEvent::EVENT_PRESAVE, $node);
+  } else {
+    trigger_error('\$node should be an instanceof NodeInterface', E_USER_DEPRECATED);
+  }
+}
+
+/**
+ * Implements hook_node_load().
+ */
+function sf_int_node_load(array $entities) {
+  $node = reset($entities);
+  // @todo Trigger the user load event here causes an infinite loop, for some
+  //   reason I don't have time to debug at this precise moment, so I just
+  //   deactivate the hook for the user node, sorry.
+  if ($node instanceof NodeInterface) {
+    sf_int_collection_event_node_dispatch(NodeCollectionEvent::EVENT_LOAD, $entities);
+  } else {
+    trigger_error('\$node should be an instanceof NodeInterface', E_USER_DEPRECATED);
+  }
+}
+
+/**
+ * Implements hook_node_insert().
+ */
+function sf_int_node_insert(EntityInterface $node) {
+  if ($node instanceof NodeInterface) {
+    sf_int_node_dispatch(NodeEvent::EVENT_INSERT, $node);
+    sf_int_node_dispatch(NodeEvent::EVENT_SAVE, $node);
+  } else {
+    trigger_error('\$node should be an instanceof NodeInterface', E_USER_DEPRECATED);
+  }
+}
+
+/**
+ * Implements hook_node_update().
+ */
+function sf_int_node_update(EntityInterface $node) {
+  if ($node instanceof NodeInterface) {
+    sf_int_node_dispatch(NodeEvent::EVENT_UPDATE, $node);
+    sf_int_node_dispatch(NodeEvent::EVENT_SAVE, $node);
+  } else {
+    trigger_error('\$node should be an instanceof NodeInterface', E_USER_DEPRECATED);
+  }
+}
+
+/**
+ * Implements hook_node_delete().
+ */
+function sf_int_node_delete(EntityInterface $node) {
+  if ($node instanceof NodeInterface) {
+    sf_int_node_dispatch(NodeEvent::EVENT_DELETE, $node);
+  } else {
+    trigger_error('\$node should be an instanceof NodeInterface', E_USER_DEPRECATED);
+  }
+}
+
+/**
+ * Implements hook_entity_view().
+ *
+function sf_int_entity_view(array &$build, EntityInterface $entity, EntityViewDisplayInterface $display, $view_mode) {
+  return;
+  if ($entity instanceof EntityInterface) {
+    sf_int_dispatch(EntityEvent::EVENT_VIEW, $entity->getEntityTypeId(), $entity);
+  }
+}
+ */
+
+/**
+ * Implements hook_entity_prepare_view().
+ *
+function sf_int_entity_prepare_view($entity_type_id, array $entities, array $displays, $view_mode) {
+  return;
+  $entity = reset($entities);
+  if ($entity instanceof EntityInterface) {
+    sf_int_collection_event_dispatch(EntityCollectionEvent::EVENT_PREPAREVIEW, $entity_type_id, $entities);
+  }
+}
+ */
+
+/**
+ * Implements hook_entity_presave().
+ *
+function sf_int_entity_presave(EntityInterface $entity) {
+  return;
+  $type = $entity->getEntityTypeId();
+  if ($entity->isNew()) {
+    sf_int_dispatch(EntityEvent::EVENT_PREINSERT, $type, $entity);
+  } else {
+    sf_int_dispatch(EntityEvent::EVENT_PREUPDATE, $type, $entity);
+  }
+  sf_int_dispatch(EntityEvent::EVENT_PRESAVE, $type, $entity);
+}
+ */
+
+/**
+ * Implements hook_entity_load().
+ *
+function sf_int_entity_load($entities, $type) {
+  return;
+  $entity = reset($entities);
+  // @todo Trigger the user load event here causes an infinite loop, for some
+  //   reason I don't have time to debug at this precise moment, so I just
+  //   deactivate the hook for the user entity, sorry.
+  if ($entity instanceof EntityInterface && 'user' !== $type) {
+    sf_int_collection_event_dispatch(EntityCollectionEvent::EVENT_LOAD, $type, $entities);
+  }
+}
+ */
+
+/**
+ * Implements hook_entity_insert().
+ *
+function sf_int_entity_insert($entity) {
+  return;
+  $type = $entity->getEntityTypeId();
+  if ($entity instanceof EntityInterface) {
+    sf_int_dispatch(EntityEvent::EVENT_INSERT, $type, $entity);
+    sf_int_dispatch(EntityEvent::EVENT_SAVE, $type, $entity);
+  }
+}
+ */
+
+/**
+ * Implements hook_entity_update().
+ *
+function sf_int_entity_update($entity) {
+  return;
+  $type = $entity->getEntityTypeId();
+  if ($entity instanceof EntityInterface) {
+    sf_int_dispatch(EntityEvent::EVENT_UPDATE, $type, $entity);
+    sf_int_dispatch(EntityEvent::EVENT_SAVE, $type, $entity);
+  }
+}
+ */
+
+/**
+ * Implements hook_entity_delete().
+ *
+function sf_int_entity_delete($entity) {
+  return;
+  $type = $entity->getEntityTypeId();
+  if ($entity instanceof EntityInterface) {
+    sf_int_dispatch(EntityEvent::EVENT_DELETE, $type, $entity);
+  }
+}
+ */
+
+/**
+ * Dispatches a node event.
+ *
+ * @param string $name
+ *   The event name. Use constants of the NodeEvent class.
+ * @param NodeInterface $node
+ *   The node concerned by the event.
+ * @param ... $arguments
+ */
+function sf_int_node_dispatch(string $name, NodeInterface $node) {
+  $currentUser = \Drupal::currentUser();
+  $userId = ($currentUser->isAnonymous() ? null : ($currentUser->isAnonymous() ? null : $currentUser->id()));
+  // Generic event for all entity types
+  $event = new NodeEvent($name, $node, $userId);
+  sf_int_dispatcher()->dispatch($name, $event);
+}
+
+/**
+ * Dispatches a node collection event.
+ *
+ * @param string $name
+ *   The event name. Use constants of the EntityInterface class.
+ * @param NodeInterface[] $nodes
+ *   Nodes concerned by the event.
+ * @param ... $arguments
+ */
+function sf_int_collection_event_node_dispatch(string $name, array $nodes) {
+  $currentUser = \Drupal::currentUser();
+  $userId = ($currentUser->isAnonymous() ? null : ($currentUser->isAnonymous() ? null : $currentUser->id()));
+  // Generic event for all entity types
+  $event = new NodeCollectionEvent($name, $nodes, $userId);
+  sf_int_dispatcher()->dispatch($name, $event);
+}
+
+/**
+ * Dispatches an entity event.
+ *
+ * @param string $name
+ *   The event name. Use constants of the NodeEvent class.
+ * @param string $type
+ *   The entity type.
+ * @param EntityInterface $node
+ *   The node concerned by the event.
+ * @param string $type
+ *   Entity type.
+ * @param ... $arguments
+ */
+function sf_int_dispatch(string $name, string $type, EntityInterface $entity) {
+  $currentUser = \Drupal::currentUser();
+  $userId = ($currentUser->isAnonymous() ? null : ($currentUser->isAnonymous() ? null : $currentUser->id()));
+  // Generic event for all entity types
+  $event = new EntityEvent($name, $type, $entity, $userId);
+  sf_int_dispatcher()->dispatch($name, $event);
+}
+
+/**
+ * Dispatches an entity collection event.
+ *
+ * @param string $name
+ *   The event name. Use constants of the EntityInterface class.
+ * @param string $type
+ *   The entity type.
+ * @param EntityInterface[] $nodes
+ *   Nodes concerned by the event.
+ * @param string $type
+ *   Entity type.
+ * @param ... $arguments
+ */
+function sf_int_collection_event_dispatch($name, $type, array $entities) {
+  $currentUser = \Drupal::currentUser();
+  $userId = ($currentUser->isAnonymous() ? null : ($currentUser->isAnonymous() ? null : $currentUser->id()));
+  // Generic event for all entity types
+  $event = new EntityCollectionEvent($name, $type, $entities, $userId);
+  sf_int_dispatcher()->dispatch($name, $event);
+}
