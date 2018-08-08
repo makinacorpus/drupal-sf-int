@@ -26,3 +26,8 @@ services:
         class: MakinaCorpus\Drupal\Sf\EventDispatcher\NodeAccessSubscriber
         arguments: ["@event_dispatcher"]
         tags: [{name: event_subscriber}]
+
+    sf_dic.access_check.authoritzation_checker_passthrough:
+        class: MakinaCorpus\Drupal\Sf\Security\DrupalRoutingAccessVoter
+        arguments: ['@security.authorization_checker']
+        tags: [{name: access_check, applies_to: _is_granted}]

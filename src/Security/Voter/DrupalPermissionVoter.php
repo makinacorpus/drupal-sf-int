@@ -17,7 +17,7 @@ class DrupalPermissionVoter implements VoterInterface
      */
     public function vote(TokenInterface $token, $subject, array $attributes)
     {
-        if (null === $subject && 'permission' !== $subject) {
+        if (null !== $subject && 'permission' !== $subject) {
             return self::ACCESS_ABSTAIN;
         }
 
