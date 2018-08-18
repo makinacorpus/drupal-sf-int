@@ -68,7 +68,7 @@ function sf_int_entity_create_access(AccountInterface $account, array $context, 
  * Implements hook_node_access().
  */
 function sf_int_node_access(EntityInterface $node, $op, AccountInterface $account) {
-  if ($account instanceof AccountInterface) {
+  if ($node instanceof NodeInterface) {
     $event = new NodeAccessEvent($node, $account, $op);
     sf_int_dispatcher()->dispatch(NodeAccessEvent::EVENT_NODE_ACCESS, $event);
     return $event->getResult();
